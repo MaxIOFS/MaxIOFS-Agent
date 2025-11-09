@@ -11,12 +11,20 @@ import (
 	"maxiofs-agent/internal/storage"
 	"maxiofs-agent/internal/vfs"
 
+	"fyne.io/fyne/v2"
+	fyneapp "fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
+	"fyne.io/systray"
 	"github.com/gen2brain/dlgs"
-	"github.com/getlantern/systray"
 )
 
 //go:embed icon.ico
 var iconData []byte
+
+//go:embed icon.png
+var iconPNG []byte
 
 type App struct {
 	config         *config.Config
@@ -24,11 +32,15 @@ type App struct {
 	mountedBuckets map[string]*MountedBucket
 	mu             sync.Mutex
 
+	// Fyne app for windows
+	fyneApp fyne.App
+
 	// Menu items
 	statusItem     *systray.MenuItem
 	connectItem    *systray.MenuItem
 	disconnectItem *systray.MenuItem
 	bucketsMenu    *systray.MenuItem
+	bucketItems    []*systray.MenuItem // Para trackear los items de buckets
 }
 
 type MountedBucket struct {
@@ -40,8 +52,15 @@ type MountedBucket struct {
 var app *App
 
 func main() {
+	// Create Fyne app first
+	fyneApp := fyneapp.NewWithID("com.maxiofs.agent")
+
+	// Configurar icono de la aplicación (usar PNG para Fyne)
+	fyneApp.SetIcon(fyne.NewStaticResource("icon.png", iconPNG))
+
 	app = &App{
 		mountedBuckets: make(map[string]*MountedBucket),
+		fyneApp:        fyneApp,
 	}
 
 	// Cargar configuración
@@ -51,8 +70,17 @@ func main() {
 	}
 	app.config = cfg
 
-	// Iniciar systray
-	systray.Run(onReady, onExit)
+	// Crear una ventana invisible para mantener la app viva
+	// Esto evita que Fyne cierre la app cuando todas las ventanas visibles se cierran
+	dummyWindow := fyneApp.NewWindow("")
+	dummyWindow.Resize(fyne.NewSize(1, 1))
+	dummyWindow.Hide()
+
+	// Iniciar systray en una goroutine
+	go systray.Run(onReady, onExit)
+
+	// Iniciar el bucle de eventos de Fyne (esto debe ser en el thread principal)
+	fyneApp.Run()
 }
 
 func onReady() {
@@ -106,9 +134,7 @@ func onReady() {
 			case <-helpItem.ClickedCh:
 				go showHelp()
 			case <-quitItem.ClickedCh:
-				disconnect()
-				systray.Quit()
-				return
+				go confirmQuit()
 			}
 		}
 	}()
@@ -119,30 +145,82 @@ func onExit() {
 }
 
 func showSettings() {
-	endpoint, ok, _ := dlgs.Entry("MaxIOFS - Endpoint", "Servidor (ej: localhost:9000):", app.config.Endpoint)
-	if !ok || endpoint == "" {
-		return
-	}
+	// Usar Do (no DoAndWait) para no bloquear
+	fyne.Do(func() {
+		// Usar la app Fyne existente, NO crear una nueva
+		window := app.fyneApp.NewWindow("MaxIOFS - Connection Settings")
+		window.SetIcon(fyne.NewStaticResource("icon.png", iconPNG))
+		window.SetFixedSize(true)
 
-	accessKey, ok, _ := dlgs.Entry("MaxIOFS - Access Key", "Tu Access Key ID:", app.config.AccessKeyID)
-	if !ok || accessKey == "" {
-		return
-	}
+		// Create form fields
+		endpointEntry := widget.NewEntry()
+		endpointEntry.SetPlaceHolder("e.g., localhost:9000 or s3.example.com")
+		endpointEntry.SetText(app.config.Endpoint)
 
-	secretKey, ok, _ := dlgs.Password("MaxIOFS - Secret Key", "Tu Secret Access Key:")
-	if !ok || secretKey == "" {
-		return
-	}
+		accessKeyEntry := widget.NewEntry()
+		accessKeyEntry.SetPlaceHolder("Your Access Key ID")
+		accessKeyEntry.SetText(app.config.AccessKeyID)
 
-	useSSL, _ := dlgs.Question("MaxIOFS - SSL/TLS", "¿Usar conexión segura (SSL/TLS)?", app.config.UseSSL)
+		secretKeyEntry := widget.NewPasswordEntry()
+		secretKeyEntry.SetPlaceHolder("Your Secret Access Key")
+		secretKeyEntry.SetText(app.config.SecretAccessKey)
 
-	app.config.Endpoint = endpoint
-	app.config.AccessKeyID = accessKey
-	app.config.SecretAccessKey = secretKey
-	app.config.UseSSL = useSSL
-	app.config.Save()
+		sslCheck := widget.NewCheck("Use SSL/TLS (Secure Connection)", nil)
+		sslCheck.SetChecked(app.config.UseSSL)
 
-	tryConnect()
+		// Create form
+		form := container.NewVBox(
+			widget.NewLabel("Endpoint:"),
+			endpointEntry,
+			widget.NewLabel("Access Key ID:"),
+			accessKeyEntry,
+			widget.NewLabel("Secret Access Key:"),
+			secretKeyEntry,
+			widget.NewLabel(""),
+			sslCheck,
+		)
+
+		// Create buttons
+		saveBtn := widget.NewButton("Connect", func() {
+			endpoint := endpointEntry.Text
+			accessKey := accessKeyEntry.Text
+			secretKey := secretKeyEntry.Text
+			useSSL := sslCheck.Checked
+
+			if endpoint == "" || accessKey == "" || secretKey == "" {
+				dialog.ShowError(fmt.Errorf("All fields are required"), window)
+				return
+			}
+
+			app.config.Endpoint = endpoint
+			app.config.AccessKeyID = accessKey
+			app.config.SecretAccessKey = secretKey
+			app.config.UseSSL = useSSL
+			app.config.Save()
+
+			window.Close()
+			go tryConnect()
+		})
+
+		cancelBtn := widget.NewButton("Cancel", func() {
+			window.Close()
+		})
+
+		buttons := container.NewGridWithColumns(2, cancelBtn, saveBtn)
+
+		// Layout
+		content := container.NewVBox(
+			widget.NewLabelWithStyle("Connection Settings", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+			widget.NewSeparator(),
+			form,
+			widget.NewSeparator(),
+			buttons,
+		)
+
+		window.SetContent(container.NewPadded(content))
+		window.CenterOnScreen()
+		window.Show() // Usar Show() en lugar de ShowAndRun()
+	})
 }
 
 func tryConnect() {
@@ -194,6 +272,12 @@ func disconnect() {
 	}
 	app.mountedBuckets = make(map[string]*MountedBucket)
 
+	// Ocultar y limpiar items de buckets
+	for _, item := range app.bucketItems {
+		item.Hide()
+	}
+	app.bucketItems = nil
+
 	app.s3Client = nil
 	app.statusItem.SetTitle("⚫ Desconectado")
 	app.connectItem.Enable()
@@ -207,6 +291,12 @@ func loadBuckets() {
 		return
 	}
 
+	// Limpiar items anteriores
+	for _, item := range app.bucketItems {
+		item.Hide()
+	}
+	app.bucketItems = nil
+
 	ctx := context.Background()
 	buckets, err := app.s3Client.ListBuckets(ctx)
 	if err != nil {
@@ -219,6 +309,7 @@ func loadBuckets() {
 	for _, bucket := range buckets {
 		bucketName := bucket.Name
 		item := app.bucketsMenu.AddSubMenuItem("📦 "+bucketName, "Click para montar como unidad")
+		app.bucketItems = append(app.bucketItems, item) // Trackear el item
 
 		go func(name string, menuItem *systray.MenuItem) {
 			for {
@@ -305,4 +396,13 @@ func showHelp() {
 			"4. ¡Listo! Accede desde el Explorador\n\n"+
 			"Los archivos se cargan bajo demanda.\n"+
 			"No descarga todo el bucket.")
+}
+
+func confirmQuit() {
+	ok, _ := dlgs.Question("Salir", "¿Está seguro que desea salir de MaxIOFS Agent?", false)
+	if ok {
+		disconnect()
+		systray.Quit()
+		app.fyneApp.Quit()
+	}
 }

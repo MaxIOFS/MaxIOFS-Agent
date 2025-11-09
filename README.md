@@ -1,93 +1,157 @@
 # MaxIOFS Desktop Agent
 
-Agente de escritorio para montar buckets de MaxIOFS como unidades locales.
+Desktop agent for mounting MaxIOFS buckets as local drives on Windows.
 
-## Características
+## Features
 
-- ✅ Interfaz gráfica con icono en bandeja del sistema (system tray)
-- ✅ Monta buckets S3/MaxIOFS como unidades de disco
-- ✅ Soporte cross-platform (Windows, Linux, macOS)
-- ✅ Configuración visual con diálogos nativos
-- ✅ Gestión de múltiples buckets
-- ✅ Auto-conexión al iniciar
+- System tray icon with interactive menu
+- Mount S3/MaxIOFS buckets as Windows drive letters
+- Read and write support for files and directories
+- Intelligent metadata caching for better performance
+- Visual configuration with native dialogs
+- Multiple bucket management
+- Auto-connect on startup
+- Secure credential storage
 
-## Requisitos
+## Requirements
 
 ### Windows
-- **WinFsp** instalado (https://github.com/winfsp/winfsp/releases)
-  - Descarga e instala `winfsp-x.x.xxxxx.msi`
+- **WinFsp** installed (https://github.com/winfsp/winfsp/releases)
+  - Download and install `winfsp-x.x.xxxxx.msi`
+- Windows 10 or later recommended
 
-### Linux
-- **FUSE** instalado
-  ```bash
-  sudo apt install fuse libfuse2  # Debian/Ubuntu
-  sudo yum install fuse           # RedHat/CentOS
-  ```
+## Installation
 
-### macOS
-- **macFUSE** instalado (https://osxfuse.github.io/)
+1. Download the latest release
+2. Install WinFsp (if not already installed)
+3. Run `maxiofs-agent.exe`
 
-## Uso
+## Usage
 
-1. **Ejecutar el agente**
+### Initial Setup
+
+1. **Run the agent**
    ```bash
-   ./maxiofs-agent.exe
+   maxiofs-agent.exe
    ```
 
-2. **Aparecerá un icono en la bandeja del sistema**
+2. **A system tray icon will appear** (look near the clock)
 
-3. **Configurar conexión**
-   - Click derecho en el icono
-   - Seleccionar "Configurar y Conectar"
-   - Ingresar:
-     - Endpoint (ej: `localhost:8080`)
+3. **Configure connection**
+   - Right-click the tray icon
+   - Select "Configure Connection"
+   - Enter:
+     - Endpoint (e.g., `localhost:8080` or `s3.example.com`)
      - Access Key ID
      - Secret Access Key
-     - Usar SSL/TLS (Sí/No)
+     - Use SSL/TLS (Yes/No)
 
-4. **Montar buckets**
-   - Click en el icono
-   - Ir a "Buckets" → Seleccionar bucket
-   - Ingresar letra de unidad (Windows: `M:`) o ruta (Linux: `/mnt/bucket`)
-   - ¡El bucket aparecerá como unidad en tu sistema!
+### Mounting Buckets
 
-5. **Desmontar**
-   - Click en el bucket montado para desmontarlo
+1. Click the tray icon
+2. Go to "Buckets" → Select a bucket
+3. Enter a drive letter (e.g., `Z`)
+4. The bucket will appear as a drive in Windows Explorer!
 
-## Configuración
+### Unmounting
 
-La configuración se guarda automáticamente en:
-- **Windows**: `C:\Users\<usuario>\.maxiofs-agent\config.json`
-- **Linux/Mac**: `~/.maxiofs-agent/config.json`
+- Click on the mounted bucket in the menu to unmount it
 
-## Características Técnicas
+## Configuration
 
-- Backend: Go + AWS SDK for Go v2
-- Filesystem virtual: cgofuse (WinFsp/FUSE)
-- Interfaz: systray + diálogos nativos
-- Sin dependencias web (ejecutable nativo)
-- Tamaño: ~13MB
+Configuration is automatically saved in:
+- **Windows**: `C:\Users\<username>\.maxiofs-agent\config.json`
 
-## Compilar desde código
+## Technical Details
+
+- **Backend**: Go + AWS SDK for Go v2
+- **Virtual Filesystem**: cgofuse + WinFsp
+- **Interface**: systray + native dialogs
+- **No web dependencies**: Pure native executable
+- **Size**: ~13MB
+
+## Supported Operations
+
+- **Files**: Read, Write, Create, Delete, Rename
+- **Directories**: Create, Delete, List, Rename
+- **Metadata**: File size, modification time, permissions
+- **Performance**: Intelligent caching for metadata and listings
+
+## Building from Source
+
+### Prerequisites
+
+- Go 1.24 or later
+- WinFsp SDK (for development)
+- GCC (w64devkit or MinGW-w64)
+
+### Build Commands
 
 ```bash
-# Instalar dependencias
+# Install dependencies
 go mod download
 
-# Compilar
-export CGO_ENABLED=0
-cd cmd/maxiofs-agent
-go build -ldflags="-H windowsgui" -o ../../maxiofs-agent.exe
+# Build
+go build -ldflags="-H windowsgui" -o maxiofs-agent.exe ./cmd/maxiofs-agent
 ```
 
-## Funcionalidades Futuras
+Or use the provided build script:
 
-- [ ] Caché local inteligente
-- [ ] Sincronización bidireccional
-- [ ] Notificaciones de cambios
-- [ ] Estadísticas de uso
-- [ ] Modo offline
+```bash
+build.bat
+```
 
-## Licencia
+## Project Structure
+
+```
+maxiofs-agent/
+├── cmd/
+│   └── maxiofs-agent/     # Main application
+├── internal/
+│   ├── config/            # Configuration management
+│   ├── storage/           # S3 client implementation
+│   ├── vfs/               # Virtual filesystem (S3FS)
+│   └── cgofuse/           # FUSE wrapper (vendored)
+├── include/               # WinFsp headers
+├── lib/                   # WinFsp libraries
+└── README.md
+```
+
+## How It Works
+
+1. The agent creates a system tray icon for user interaction
+2. When you mount a bucket, it creates a virtual filesystem using WinFsp
+3. Files are loaded on-demand (streaming from S3)
+4. Write operations use temporary files that are uploaded on close/flush
+5. Metadata is cached to reduce S3 API calls
+6. The entire bucket is NOT downloaded - only requested files
+
+## Troubleshooting
+
+### "Could not mount bucket"
+- Verify WinFsp is installed
+- Try a different drive letter
+- Check if the drive letter is already in use
+
+### "Connection error"
+- Verify endpoint is correct (no `http://` or `https://` prefix)
+- Check access key and secret key
+- Verify SSL/TLS setting matches your server
+
+### Files don't appear
+- Wait a few seconds for the cache to refresh
+- Try unmounting and remounting the bucket
+- Check S3 server logs for errors
+
+## Future Features
+
+- [ ] Intelligent local cache for files
+- [ ] Bidirectional sync
+- [ ] Change notifications
+- [ ] Usage statistics
+- [ ] Offline mode
+- [ ] Linux and macOS support
+
+## License
 
 MIT

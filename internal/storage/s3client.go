@@ -14,19 +14,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// S3Client maneja la conexión con MaxIOFS
+// S3Client manages the connection to MaxIOFS
 type S3Client struct {
 	client   *s3.Client
 	endpoint string
 }
 
-// BucketInfo contiene información de un bucket
+// BucketInfo contains bucket information
 type BucketInfo struct {
 	Name         string
 	CreationDate string
 }
 
-// ObjectInfo contiene información de un objeto
+// ObjectInfo contains object information
 type ObjectInfo struct {
 	Key          string
 	Size         int64
@@ -35,12 +35,12 @@ type ObjectInfo struct {
 	ETag         string
 }
 
-// NewS3Client crea un nuevo cliente para conectar con MaxIOFS
+// NewS3Client creates a new client to connect to MaxIOFS
 func NewS3Client(endpoint, accessKeyID, secretAccessKey string, useSSL bool) (*S3Client, error) {
-	// Configurar credenciales
+	// Configure credentials
 	creds := credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, "")
 
-	// Configurar endpoint personalizado para MaxIOFS
+	// Configure custom endpoint for MaxIOFS
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		scheme := "https"
 		if !useSSL {
@@ -53,16 +53,16 @@ func NewS3Client(endpoint, accessKeyID, secretAccessKey string, useSSL bool) (*S
 		}, nil
 	})
 
-	// Crear configuración
+	// Create configuration
 	cfg := aws.Config{
 		Region:                      "us-east-1",
 		Credentials:                 creds,
 		EndpointResolverWithOptions: customResolver,
 	}
 
-	// Crear cliente S3
+	// Create S3 client
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.UsePathStyle = true // Importante para endpoints personalizados
+		o.UsePathStyle = true // Important for custom endpoints
 	})
 
 	return &S3Client{
@@ -71,17 +71,17 @@ func NewS3Client(endpoint, accessKeyID, secretAccessKey string, useSSL bool) (*S
 	}, nil
 }
 
-// TestConnection verifica la conexión con MaxIOFS
+// TestConnection verifies the connection to MaxIOFS
 func (s *S3Client) TestConnection(ctx context.Context) error {
 	_, err := s.client.ListBuckets(ctx, &s3.ListBucketsInput{})
 	return err
 }
 
-// ListBuckets lista todos los buckets disponibles
+// ListBuckets lists all available buckets
 func (s *S3Client) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
 	result, err := s.client.ListBuckets(ctx, &s3.ListBucketsInput{})
 	if err != nil {
-		return nil, fmt.Errorf("error listando buckets: %w", err)
+		return nil, fmt.Errorf("error listing buckets: %w", err)
 	}
 
 	buckets := make([]BucketInfo, 0, len(result.Buckets))
@@ -95,35 +95,35 @@ func (s *S3Client) ListBuckets(ctx context.Context) ([]BucketInfo, error) {
 	return buckets, nil
 }
 
-// ListObjects lista objetos en un bucket con un prefijo (recursivo)
+// ListObjects lists objects in a bucket with a prefix (recursive)
 func (s *S3Client) ListObjects(ctx context.Context, bucketName, prefix string) ([]ObjectInfo, error) {
 	fmt.Printf("[S3Client.ListObjects] bucket=%s prefix='%s' (RECURSIVE)\n", bucketName, prefix)
 
 	input := &s3.ListObjectsV2Input{
 		Bucket: aws.String(bucketName),
 		Prefix: aws.String(prefix),
-		// NO usar Delimiter para obtener listado recursivo
+		// DO NOT use Delimiter to get recursive listing
 	}
 
 	var objects []ObjectInfo
 	paginator := s3.NewListObjectsV2Paginator(s.client, input)
 
-	// Iterar por todas las páginas
+	// Iterate through all pages
 	for paginator.HasMorePages() {
 		result, err := paginator.NextPage(ctx)
 		if err != nil {
 			fmt.Printf("[S3Client.ListObjects] Error: %v\n", err)
-			return nil, fmt.Errorf("error listando objetos: %w", err)
+			return nil, fmt.Errorf("error listing objects: %w", err)
 		}
 
 		fmt.Printf("[S3Client.ListObjects] Page Contents count: %d\n", len(result.Contents))
 
-		// Agregar todos los archivos y directorios
+		// Add all files and directories
 		for _, obj := range result.Contents {
 			key := aws.ToString(obj.Key)
 			size := aws.ToInt64(obj.Size)
 
-			// Determinar si es un directorio (termina en /)
+			// Determine if it's a directory (ends with /)
 			isDir := len(key) > 0 && key[len(key)-1] == '/'
 
 			if isDir {
@@ -146,11 +146,11 @@ func (s *S3Client) ListObjects(ctx context.Context, bucketName, prefix string) (
 	return objects, nil
 }
 
-// UploadFile sube un archivo al bucket
+// UploadFile uploads a file to the bucket
 func (s *S3Client) UploadFile(ctx context.Context, bucketName, objectName, filePath string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("error abriendo archivo: %w", err)
+		return fmt.Errorf("error opening file: %w", err)
 	}
 	defer file.Close()
 
@@ -160,13 +160,13 @@ func (s *S3Client) UploadFile(ctx context.Context, bucketName, objectName, fileP
 		Body:   file,
 	})
 	if err != nil {
-		return fmt.Errorf("error subiendo archivo: %w", err)
+		return fmt.Errorf("error uploading file: %w", err)
 	}
 
 	return nil
 }
 
-// UploadData sube datos desde memoria al bucket
+// UploadData uploads data from memory to the bucket
 func (s *S3Client) UploadData(ctx context.Context, bucketName, objectName string, data []byte) error {
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
@@ -174,66 +174,66 @@ func (s *S3Client) UploadData(ctx context.Context, bucketName, objectName string
 		Body:   bytes.NewReader(data),
 	})
 	if err != nil {
-		return fmt.Errorf("error subiendo datos: %w", err)
+		return fmt.Errorf("error uploading data: %w", err)
 	}
 
 	return nil
 }
 
-// DownloadFile descarga un archivo del bucket
+// DownloadFile downloads a file from the bucket
 func (s *S3Client) DownloadFile(ctx context.Context, bucketName, objectName, destPath string) error {
 	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(objectName),
 	})
 	if err != nil {
-		return fmt.Errorf("error descargando archivo: %w", err)
+		return fmt.Errorf("error downloading file: %w", err)
 	}
 	defer result.Body.Close()
 
-	// Crear archivo destino
+	// Create destination file
 	file, err := os.Create(destPath)
 	if err != nil {
-		return fmt.Errorf("error creando archivo: %w", err)
+		return fmt.Errorf("error creating file: %w", err)
 	}
 	defer file.Close()
 
-	// Copiar contenido
+	// Copy contents
 	_, err = io.Copy(file, result.Body)
 	if err != nil {
-		return fmt.Errorf("error escribiendo archivo: %w", err)
+		return fmt.Errorf("error writing file: %w", err)
 	}
 
 	return nil
 }
 
-// GetObject obtiene un objeto para leer
+// GetObject retrieves an object for reading
 func (s *S3Client) GetObject(ctx context.Context, bucketName, objectName string) (io.ReadCloser, int64, error) {
 	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(objectName),
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("error obteniendo objeto: %w", err)
+		return nil, 0, fmt.Errorf("error getting object: %w", err)
 	}
 
 	size := aws.ToInt64(result.ContentLength)
 	return result.Body, size, nil
 }
 
-// DeleteObject elimina un objeto del bucket
+// DeleteObject deletes an object from the bucket
 func (s *S3Client) DeleteObject(ctx context.Context, bucketName, objectName string) error {
 	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(objectName),
 	})
 	if err != nil {
-		return fmt.Errorf("error eliminando objeto: %w", err)
+		return fmt.Errorf("error deleting object: %w", err)
 	}
 	return nil
 }
 
-// CopyObject copia un objeto dentro del bucket (server-side, sin descargar)
+// CopyObject copies an object within the bucket (server-side, without downloading)
 func (s *S3Client) CopyObject(ctx context.Context, bucketName, sourceKey, destKey string) error {
 	copySource := fmt.Sprintf("%s/%s", bucketName, sourceKey)
 
@@ -243,23 +243,23 @@ func (s *S3Client) CopyObject(ctx context.Context, bucketName, sourceKey, destKe
 		Key:        aws.String(destKey),
 	})
 	if err != nil {
-		return fmt.Errorf("error copiando objeto: %w", err)
+		return fmt.Errorf("error copying object: %w", err)
 	}
 	return nil
 }
 
-// CreateBucket crea un nuevo bucket
+// CreateBucket creates a new bucket
 func (s *S3Client) CreateBucket(ctx context.Context, bucketName string) error {
 	_, err := s.client.CreateBucket(ctx, &s3.CreateBucketInput{
 		Bucket: aws.String(bucketName),
 	})
 	if err != nil {
-		return fmt.Errorf("error creando bucket: %w", err)
+		return fmt.Errorf("error creating bucket: %w", err)
 	}
 	return nil
 }
 
-// GetObjectName extrae el nombre del archivo del path
+// GetObjectName extracts the file name from the path
 func GetObjectName(filePath string) string {
 	return filepath.Base(filePath)
 }

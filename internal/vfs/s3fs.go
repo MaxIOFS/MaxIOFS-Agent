@@ -14,7 +14,7 @@ import (
 	"maxiofs-agent/internal/storage"
 )
 
-// S3FS implementa el filesystem virtual para S3
+// S3FS implements the virtual filesystem for S3
 type S3FS struct {
 	cgofuse.FileSystemBase
 	s3Client   *storage.S3Client
@@ -23,12 +23,12 @@ type S3FS struct {
 	openFiles  map[uint64]*OpenFile
 	nextFh     uint64
 
-	// Cache para Statfs
+	// Cache for Statfs
 	statfsCache     *cgofuse.Statfs_t
 	statfsCacheTime time.Time
 	statfsCacheTTL  time.Duration
 
-	// Cache para ListObjects
+	// Cache for ListObjects
 	listCache     []storage.ObjectInfo
 	listCacheTime time.Time
 	listCacheTTL  time.Duration
@@ -36,7 +36,7 @@ type S3FS struct {
 	mu sync.RWMutex
 }
 
-// FileCache cachea metadata de archivos
+// FileCache caches file metadata
 type FileCache struct {
 	entries map[string]*CacheEntry
 	mu      sync.RWMutex
@@ -47,15 +47,15 @@ type CacheEntry struct {
 	ExpiresAt time.Time
 }
 
-// OpenFile representa un archivo abierto para escritura
+// OpenFile represents a file opened for writing
 type OpenFile struct {
 	Path     string
-	TempFile string // Archivo temporal en disco
+	TempFile string // Temporary file on disk
 	Size     int64
 	Dirty    bool
 }
 
-// NewS3FS crea un nuevo filesystem S3
+// NewS3FS creates a new S3 filesystem
 func NewS3FS(s3Client *storage.S3Client, bucketName string) *S3FS {
 	return &S3FS{
 		s3Client:   s3Client,
@@ -65,12 +65,12 @@ func NewS3FS(s3Client *storage.S3Client, bucketName string) *S3FS {
 		},
 		openFiles:      make(map[uint64]*OpenFile),
 		nextFh:         1,
-		statfsCacheTTL: 30 * time.Second, // Cachear por 30 segundos
-		listCacheTTL:   2 * time.Second,  // Cache corto para listados
+		statfsCacheTTL: 30 * time.Second, // Cache for 30 seconds
+		listCacheTTL:   2 * time.Second,  // Short cache for listings
 	}
 }
 
-// invalidateCaches invalida todos los caches cuando se modifica el filesystem
+// invalidateCaches invalidates all caches when the filesystem is modified
 func (fs *S3FS) invalidateCaches() {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -80,7 +80,7 @@ func (fs *S3FS) invalidateCaches() {
 	fmt.Printf("[Cache] *** CACHES INVALIDATED ***\n")
 }
 
-// getListObjects obtiene lista de objetos con cache
+// getListObjects retrieves list of objects with cache
 func (fs *S3FS) getListObjects(ctx context.Context) ([]storage.ObjectInfo, error) {
 	fs.mu.RLock()
 	if fs.listCache != nil && time.Since(fs.listCacheTime) < fs.listCacheTTL {
@@ -91,13 +91,13 @@ func (fs *S3FS) getListObjects(ctx context.Context) ([]storage.ObjectInfo, error
 	}
 	fs.mu.RUnlock()
 
-	// Obtener de S3
+	// Fetch from S3
 	objects, err := fs.s3Client.ListObjects(ctx, fs.bucketName, "")
 	if err != nil {
 		return nil, err
 	}
 
-	// Guardar en cache
+	// Save to cache
 	fs.mu.Lock()
 	fs.listCache = objects
 	fs.listCacheTime = time.Now()
@@ -107,12 +107,12 @@ func (fs *S3FS) getListObjects(ctx context.Context) ([]storage.ObjectInfo, error
 	return objects, nil
 }
 
-// Statfs obtiene información del filesystem
+// Statfs retrieves filesystem information
 func (fs *S3FS) Statfs(path string, stat *cgofuse.Statfs_t) int {
 	fmt.Printf("[Statfs] path='%s'\n", path)
 
 	fs.mu.RLock()
-	// Verificar cache
+	// Check cache
 	if fs.statfsCache != nil && time.Since(fs.statfsCacheTime) < fs.statfsCacheTTL {
 		*stat = *fs.statfsCache
 		totalBytes := stat.Blocks * stat.Bsize
@@ -124,7 +124,7 @@ func (fs *S3FS) Statfs(path string, stat *cgofuse.Statfs_t) int {
 	}
 	fs.mu.RUnlock()
 
-	// Calcular tamaño total del bucket
+	// Calculate total bucket size
 	ctx := context.Background()
 	objects, err := fs.s3Client.ListObjects(ctx, fs.bucketName, "")
 	if err != nil {
@@ -144,7 +144,7 @@ func (fs *S3FS) Statfs(path string, stat *cgofuse.Statfs_t) int {
 		return 0
 	}
 
-	// Calcular tamaño usado
+	// Calculate used size
 	var totalSize int64
 	var fileCount int64
 	for _, obj := range objects {
@@ -160,8 +160,8 @@ func (fs *S3FS) Statfs(path string, stat *cgofuse.Statfs_t) int {
 		usedBlocks++
 	}
 
-	// Calcular tamaño total como: usado + 10GB disponible
-	availableSize := uint64(10 * 1024 * 1024 * 1024) // 10GB disponible
+	// Calculate total size as: used + 10GB available
+	availableSize := uint64(10 * 1024 * 1024 * 1024) // 10GB available
 	availableBlocks := availableSize / blockSize
 	totalBlocks := usedBlocks + availableBlocks
 
@@ -177,7 +177,7 @@ func (fs *S3FS) Statfs(path string, stat *cgofuse.Statfs_t) int {
 	stat.Flag = 0 // No readonly
 	stat.Namemax = 255
 
-	// Guardar en cache
+	// Save to cache
 	fs.mu.Lock()
 	cached := *stat
 	fs.statfsCache = &cached
@@ -186,15 +186,15 @@ func (fs *S3FS) Statfs(path string, stat *cgofuse.Statfs_t) int {
 
 	totalBytes := stat.Blocks * stat.Bsize
 	usedBytes := (stat.Blocks - stat.Bfree) * stat.Bsize
-	fmt.Printf("[Statfs] *** NUEVO CALCULO ***\n")
-	fmt.Printf("[Statfs] Archivos en bucket: %d archivos = %d MB\n", fileCount, totalSize/(1024*1024))
-	fmt.Printf("[Statfs] Tamaño total volumen: %d GB\n", totalBytes/(1024*1024*1024))
-	fmt.Printf("[Statfs] Espacio usado: %d MB\n", usedBytes/(1024*1024))
-	fmt.Printf("[Statfs] Espacio libre: %d GB\n", (stat.Bfree*stat.Bsize)/(1024*1024*1024))
+	fmt.Printf("[Statfs] *** NEW CALCULATION ***\n")
+	fmt.Printf("[Statfs] Files in bucket: %d files = %d MB\n", fileCount, totalSize/(1024*1024))
+	fmt.Printf("[Statfs] Total volume size: %d GB\n", totalBytes/(1024*1024*1024))
+	fmt.Printf("[Statfs] Used space: %d MB\n", usedBytes/(1024*1024))
+	fmt.Printf("[Statfs] Free space: %d GB\n", (stat.Bfree*stat.Bsize)/(1024*1024*1024))
 	return 0
 }
 
-// Open abre un archivo
+// Open opens a file
 func (fs *S3FS) Open(path string, flags int) (int, uint64) {
 	path = strings.TrimPrefix(path, "/")
 	fmt.Printf("[Open] path='%s' flags=%d\n", path, flags)
@@ -213,7 +213,7 @@ func (fs *S3FS) Open(path string, flags int) (int, uint64) {
 	fh := fs.nextFh
 	fs.nextFh++
 
-	// Crear archivo temporal
+	// Create temporary file
 	tempDir := os.TempDir()
 	tempFile := filepath.Join(tempDir, fmt.Sprintf("maxiofs-%d.tmp", fh))
 
@@ -232,7 +232,7 @@ func (fs *S3FS) Open(path string, flags int) (int, uint64) {
 		}
 		reader.Close()
 	} else {
-		// Crear archivo temporal vacío
+		// Create empty temporary file
 		tmpF, err := os.Create(tempFile)
 		if err == nil {
 			tmpF.Close()
@@ -251,7 +251,7 @@ func (fs *S3FS) Open(path string, flags int) (int, uint64) {
 	return 0, fh
 }
 
-// Flush sincroniza datos al storage
+// Flush synchronizes data to storage
 func (fs *S3FS) Flush(path string, fh uint64) int {
 	path = strings.TrimPrefix(path, "/")
 	fmt.Printf("[Flush] path='%s' fh=%d\n", path, fh)
@@ -292,11 +292,11 @@ func (fs *S3FS) Flush(path string, fh uint64) int {
 	return 0
 }
 
-// Release cierra un archivo
+// Release closes a file
 func (fs *S3FS) Release(path string, fh uint64) int {
 	fmt.Printf("[Release] *** CLOSING FILE *** path='%s' fh=%d\n", path, fh)
 
-	// Verificar si hay datos pendientes
+	// Check for pending data
 	fs.mu.RLock()
 	openFile, exists := fs.openFiles[fh]
 	var tempFile string
@@ -327,19 +327,19 @@ func (fs *S3FS) Release(path string, fh uint64) int {
 	return 0
 }
 
-// Opendir abre un directorio para lectura
+// Opendir opens a directory for reading
 func (fs *S3FS) Opendir(path string) (int, uint64) {
 	fmt.Printf("[Opendir] path='%s'\n", path)
 	return 0, 0
 }
 
-// Releasedir cierra un directorio
+// Releasedir closes a directory
 func (fs *S3FS) Releasedir(path string, fh uint64) int {
 	fmt.Printf("[Releasedir] path='%s' fh=%d\n", path, fh)
 	return 0
 }
 
-// Getattr obtiene atributos de un archivo/directorio
+// Getattr retrieves attributes of a file/directory
 func (fs *S3FS) Getattr(path string, stat *cgofuse.Stat_t, fh uint64) int {
 	path = strings.TrimPrefix(path, "/")
 	fmt.Printf("[Getattr] path='%s' fh=%d\n", path, fh)
@@ -406,7 +406,7 @@ func (fs *S3FS) Getattr(path string, stat *cgofuse.Stat_t, fh uint64) int {
 		}
 	}
 
-	// Verificar si es un directorio implícito (tiene hijos)
+	// Check if it's an implicit directory (has children)
 	pathPrefix := path + "/"
 	for _, obj := range objects {
 		if strings.HasPrefix(obj.Key, pathPrefix) {
@@ -422,7 +422,7 @@ func (fs *S3FS) Getattr(path string, stat *cgofuse.Stat_t, fh uint64) int {
 	return -cgofuse.ENOENT
 }
 
-// Readdir lee el contenido de un directorio
+// Readdir reads directory contents
 func (fs *S3FS) Readdir(path string,
 	fill func(name string, stat *cgofuse.Stat_t, ofst int64) bool,
 	ofst int64,
@@ -467,7 +467,7 @@ func (fs *S3FS) Readdir(path string,
 			relativePath = strings.TrimPrefix(objKey, prefix)
 		}
 
-		// Si está vacío o es el mismo directorio, skip
+		// If empty or same directory, skip
 		if relativePath == "" || relativePath == "/" {
 			continue
 		}
@@ -508,7 +508,7 @@ func (fs *S3FS) Readdir(path string,
 	return 0
 }
 
-// Read lee datos de un archivo
+// Read reads data from a file
 func (fs *S3FS) Read(path string, buff []byte, ofst int64, fh uint64) int {
 	path = strings.TrimPrefix(path, "/")
 	fmt.Printf("[Read] path=%s offset=%d len=%d\n", path, ofst, len(buff))
@@ -523,7 +523,7 @@ func (fs *S3FS) Read(path string, buff []byte, ofst int64, fh uint64) int {
 
 	fmt.Printf("[Read] Object size: %d\n", size)
 
-	// Verificar si el offset está fuera de rango
+	// Check if offset is out of range
 	if ofst >= size {
 		return 0
 	}
@@ -549,7 +549,7 @@ func (fs *S3FS) Read(path string, buff []byte, ofst int64, fh uint64) int {
 	return n
 }
 
-// Write escribe datos a un archivo
+// Write writes data to a file
 func (fs *S3FS) Write(path string, buff []byte, ofst int64, fh uint64) int {
 	path = strings.TrimPrefix(path, "/")
 	fmt.Printf("[Write] *** WRITING DATA *** path='%s' offset=%d len=%d fh=%d\n", path, ofst, len(buff), fh)
@@ -579,7 +579,7 @@ func (fs *S3FS) Write(path string, buff []byte, ofst int64, fh uint64) int {
 		return -cgofuse.EIO
 	}
 
-	// Actualizar tamaño
+	// Update size
 	newSize := ofst + int64(len(buff))
 	fs.mu.Lock()
 	if openFile, exists := fs.openFiles[fh]; exists {
@@ -594,7 +594,7 @@ func (fs *S3FS) Write(path string, buff []byte, ofst int64, fh uint64) int {
 	return len(buff)
 }
 
-// Create crea un archivo
+// Create creates a file
 func (fs *S3FS) Create(path string, flags int, mode uint32) (int, uint64) {
 	path = strings.TrimPrefix(path, "/")
 	fmt.Printf("[Create] *** CREATING FILE ***\n")
@@ -607,11 +607,11 @@ func (fs *S3FS) Create(path string, flags int, mode uint32) (int, uint64) {
 	fh := fs.nextFh
 	fs.nextFh++
 
-	// Crear archivo temporal
+	// Create temporary file
 	tempDir := os.TempDir()
 	tempFile := filepath.Join(tempDir, fmt.Sprintf("maxiofs-%d.tmp", fh))
 
-	// Crear archivo vacío
+	// Create empty file
 	tmpF, err := os.Create(tempFile)
 	if err != nil {
 		fmt.Printf("[Create] *** ERROR *** Cannot create temp file: %v\n", err)
@@ -630,7 +630,7 @@ func (fs *S3FS) Create(path string, flags int, mode uint32) (int, uint64) {
 	return 0, fh
 }
 
-// Unlink elimina un archivo
+// Unlink deletes a file
 func (fs *S3FS) Unlink(path string) int {
 	path = strings.TrimPrefix(path, "/")
 	fmt.Printf("[Unlink] path='%s'\n", path)
@@ -649,14 +649,14 @@ func (fs *S3FS) Unlink(path string) int {
 	return 0
 }
 
-// Mkdir crea un directorio
+// Mkdir creates a directory
 func (fs *S3FS) Mkdir(path string, mode uint32) int {
 	path = strings.TrimPrefix(path, "/")
 	fmt.Printf("[Mkdir] path='%s' mode=%o\n", path, mode)
 
-	// En S3, los directorios son implícitos cuando se crean archivos dentro
-	// Pero algunos clientes esperan poder crear directorios vacíos
-	// Crear un marcador de directorio (objeto que termina en /)
+	// In S3, directories are implicit when files are created inside
+	// But some clients expect to be able to create empty directories
+	// Create a directory marker (object ending in /)
 	ctx := context.Background()
 	err := fs.s3Client.UploadData(ctx, fs.bucketName, path+"/", []byte{})
 	if err != nil {
@@ -671,12 +671,12 @@ func (fs *S3FS) Mkdir(path string, mode uint32) int {
 	return 0
 }
 
-// Rmdir elimina un directorio
+// Rmdir deletes a directory
 func (fs *S3FS) Rmdir(path string) int {
 	path = strings.TrimPrefix(path, "/")
 	fmt.Printf("[Rmdir] path='%s'\n", path)
 
-	// Verificar que el directorio esté vacío
+	// Verify that the directory is empty
 	ctx := context.Background()
 	objects, err := fs.s3Client.ListObjects(ctx, fs.bucketName, path+"/")
 	if err != nil {
@@ -699,14 +699,14 @@ func (fs *S3FS) Rmdir(path string) int {
 	return 0
 }
 
-// Access verifica permisos de acceso
+// Access verifies access permissions
 func (fs *S3FS) Access(path string, mask uint32) int {
 	fmt.Printf("[Access] path='%s' mask=%d\n", path, mask)
-	// Siempre permitir acceso
+	// Always allow access
 	return 0
 }
 
-// Rename renombra un archivo o directorio
+// Rename renames a file or directory
 func (fs *S3FS) Rename(oldpath string, newpath string) int {
 	oldpath = strings.TrimPrefix(oldpath, "/")
 	newpath = strings.TrimPrefix(newpath, "/")
@@ -779,7 +779,7 @@ func (fs *S3FS) Rename(oldpath string, newpath string) int {
 		err = fs.s3Client.DeleteObject(ctx, fs.bucketName, oldpath)
 		if err != nil {
 			fmt.Printf("[Rename] Error deleting old file: %v\n", err)
-			// No retornar error aquí, el archivo ya se copió
+			// Don't return error here, the file was already copied
 		}
 		fmt.Printf("[Rename] Moved %s -> %s\n", oldpath, newpath)
 	}
@@ -791,7 +791,7 @@ func (fs *S3FS) Rename(oldpath string, newpath string) int {
 	return 0
 }
 
-// Truncate cambia el tamaño de un archivo
+// Truncate changes the size of a file
 func (fs *S3FS) Truncate(path string, size int64, fh uint64) int {
 	path = strings.TrimPrefix(path, "/")
 	fmt.Printf("[Truncate] *** TRUNCATE CALLED *** path='%s' size=%d fh=%d\n", path, size, fh)
@@ -825,9 +825,9 @@ func (fs *S3FS) Truncate(path string, size int64, fh uint64) int {
 		return 0
 	}
 
-	// Sin file handle: truncar archivo en S3
+	// Without file handle: truncate file in S3
 	if size == 0 {
-		// Truncar a 0: crear archivo vacío
+		// Truncate to 0: create empty file
 		ctx := context.Background()
 		err := fs.s3Client.UploadData(ctx, fs.bucketName, path, []byte{})
 		if err != nil {

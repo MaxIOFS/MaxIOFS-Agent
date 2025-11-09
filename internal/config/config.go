@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-// Config almacena la configuración del agente
+// Config stores the agent configuration
 type Config struct {
 	Endpoint        string `json:"endpoint"`
 	AccessKeyID     string `json:"access_key_id"`
@@ -16,7 +16,7 @@ type Config struct {
 	MountPath       string `json:"mount_path"`
 }
 
-// GetConfigPath retorna el path del archivo de configuración
+// GetConfigPath returns the configuration file path
 func GetConfigPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -29,7 +29,7 @@ func GetConfigPath() (string, error) {
 	return filepath.Join(configDir, "config.json"), nil
 }
 
-// Load carga la configuración desde disco
+// Load loads configuration from disk
 func Load() (*Config, error) {
 	configPath, err := GetConfigPath()
 	if err != nil {
@@ -57,7 +57,7 @@ func Load() (*Config, error) {
 	return &config, nil
 }
 
-// Save guarda la configuración a disco
+// Save saves configuration to disk
 func (c *Config) Save() error {
 	configPath, err := GetConfigPath()
 	if err != nil {
