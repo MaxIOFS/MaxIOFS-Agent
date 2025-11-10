@@ -86,37 +86,40 @@ func main() {
 func onReady() {
 	systray.SetIcon(iconData)
 	systray.SetTitle("MaxIOFS")
-	systray.SetTooltip("MaxIOFS Agent - Montaje de Buckets S3")
+	systray.SetTooltip("MaxIOFS Agent - S3 Bucket Mounting")
 
 	// Status
-	app.statusItem = systray.AddMenuItem("⚫ Desconectado", "Estado")
+	app.statusItem = systray.AddMenuItem("⚫ Disconnected", "Status")
 	app.statusItem.Disable()
 
 	systray.AddSeparator()
 
-	// Conectar
-	app.connectItem = systray.AddMenuItem("🔌 Configurar Conexión", "Configurar credenciales de MaxIOFS")
+	// Connect
+	app.connectItem = systray.AddMenuItem("🔌 Configure Connection", "Configure MaxIOFS credentials")
 
-	// Desconectar
-	app.disconnectItem = systray.AddMenuItem("🔴 Desconectar", "Desconectar de MaxIOFS")
+	// Disconnect
+	app.disconnectItem = systray.AddMenuItem("🔴 Disconnect", "Disconnect from MaxIOFS")
 	app.disconnectItem.Disable()
 	app.disconnectItem.Hide()
 
 	systray.AddSeparator()
 
 	// Buckets
-	app.bucketsMenu = systray.AddMenuItem("📦 Buckets", "Ver y montar buckets")
+	app.bucketsMenu = systray.AddMenuItem("📦 Buckets", "View and mount buckets")
 	app.bucketsMenu.Disable()
 
 	systray.AddSeparator()
 
-	// Ayuda
-	helpItem := systray.AddMenuItem("❓ Ayuda", "Cómo usar")
+	// Help
+	helpItem := systray.AddMenuItem("❓ Help", "How to use")
+
+	// About
+	aboutItem := systray.AddMenuItem("ℹ️ About", "About MaxIOFS Agent")
 
 	systray.AddSeparator()
 
-	// Salir
-	quitItem := systray.AddMenuItem("❌ Salir", "Cerrar MaxIOFS Agent")
+	// Quit
+	quitItem := systray.AddMenuItem("❌ Quit", "Close MaxIOFS Agent")
 
 	// Auto-conectar
 	if app.config.Endpoint != "" && app.config.AccessKeyID != "" && app.config.SecretAccessKey != "" {
@@ -133,6 +136,8 @@ func onReady() {
 				go disconnect()
 			case <-helpItem.ClickedCh:
 				go showHelp()
+			case <-aboutItem.ClickedCh:
+				go showAbout()
 			case <-quitItem.ClickedCh:
 				go confirmQuit()
 			}
@@ -225,7 +230,7 @@ func showSettings() {
 
 func tryConnect() {
 	go func() {
-		app.statusItem.SetTitle("🟡 Conectando...")
+		app.statusItem.SetTitle("🟡 Connecting...")
 
 		client, err := storage.NewS3Client(
 			app.config.Endpoint,
@@ -234,15 +239,15 @@ func tryConnect() {
 			app.config.UseSSL,
 		)
 		if err != nil {
-			app.statusItem.SetTitle("⚫ Error de conexión")
-			dlgs.Error("Error", "No se pudo conectar: "+err.Error())
+			app.statusItem.SetTitle("⚫ Connection error")
+			dlgs.Error("Error", "Could not connect: "+err.Error())
 			return
 		}
 
 		ctx := context.Background()
 		if err := client.TestConnection(ctx); err != nil {
-			app.statusItem.SetTitle("⚫ Error de conexión")
-			dlgs.Error("Error", "No se pudo conectar: "+err.Error())
+			app.statusItem.SetTitle("⚫ Connection error")
+			dlgs.Error("Error", "Could not connect: "+err.Error())
 			return
 		}
 
@@ -250,13 +255,13 @@ func tryConnect() {
 		app.s3Client = client
 		app.mu.Unlock()
 
-		app.statusItem.SetTitle("🟢 Conectado - " + app.config.Endpoint)
+		app.statusItem.SetTitle("🟢 Connected - " + app.config.Endpoint)
 		app.connectItem.Disable()
 		app.disconnectItem.Enable()
 		app.disconnectItem.Show()
 
 		loadBuckets()
-		dlgs.Info("Conexión Exitosa", "Conectado a MaxIOFS")
+		dlgs.Info("Connection Successful", "Connected to MaxIOFS")
 	}()
 }
 
@@ -264,7 +269,7 @@ func disconnect() {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 
-	// Desmontar todos los buckets
+	// Unmount all buckets
 	for _, mounted := range app.mountedBuckets {
 		if mounted.Host != nil {
 			mounted.Host.Unmount()
@@ -272,14 +277,14 @@ func disconnect() {
 	}
 	app.mountedBuckets = make(map[string]*MountedBucket)
 
-	// Ocultar y limpiar items de buckets
+	// Hide and clear bucket items
 	for _, item := range app.bucketItems {
 		item.Hide()
 	}
 	app.bucketItems = nil
 
 	app.s3Client = nil
-	app.statusItem.SetTitle("⚫ Desconectado")
+	app.statusItem.SetTitle("⚫ Disconnected")
 	app.connectItem.Enable()
 	app.disconnectItem.Disable()
 	app.disconnectItem.Hide()
@@ -291,7 +296,7 @@ func loadBuckets() {
 		return
 	}
 
-	// Limpiar items anteriores
+	// Clear previous items
 	for _, item := range app.bucketItems {
 		item.Hide()
 	}
@@ -300,7 +305,7 @@ func loadBuckets() {
 	ctx := context.Background()
 	buckets, err := app.s3Client.ListBuckets(ctx)
 	if err != nil {
-		dlgs.Error("Error", "Error listando buckets: "+err.Error())
+		dlgs.Error("Error", "Error listing buckets: "+err.Error())
 		return
 	}
 
@@ -308,8 +313,8 @@ func loadBuckets() {
 
 	for _, bucket := range buckets {
 		bucketName := bucket.Name
-		item := app.bucketsMenu.AddSubMenuItem("📦 "+bucketName, "Click para montar como unidad")
-		app.bucketItems = append(app.bucketItems, item) // Trackear el item
+		item := app.bucketsMenu.AddSubMenuItem("📦 "+bucketName, "Click to mount as drive")
+		app.bucketItems = append(app.bucketItems, item) // Track the item
 
 		go func(name string, menuItem *systray.MenuItem) {
 			for {
@@ -323,7 +328,7 @@ func loadBuckets() {
 func toggleBucketMount(bucketName string, menuItem *systray.MenuItem) {
 	app.mu.Lock()
 
-	// Si ya está montado, desmontar
+	// If already mounted, unmount
 	if mounted, exists := app.mountedBuckets[bucketName]; exists {
 		if mounted.Host != nil {
 			mounted.Host.Unmount()
@@ -332,49 +337,49 @@ func toggleBucketMount(bucketName string, menuItem *systray.MenuItem) {
 		app.mu.Unlock()
 
 		menuItem.SetTitle("📦 " + bucketName)
-		dlgs.Info("Desmontado", "Bucket desmontado correctamente")
+		dlgs.Info("Unmounted", "Bucket unmounted successfully")
 		return
 	}
 	app.mu.Unlock()
 
-	// Solicitar letra de unidad
+	// Request drive letter
 	driveLetter, ok, _ := dlgs.Entry(
-		"Montar Bucket",
-		"Letra de unidad (ej: Z):",
+		"Mount Bucket",
+		"Drive letter (e.g., Z):",
 		"Z",
 	)
 	if !ok || driveLetter == "" {
 		return
 	}
-	driveLetter = driveLetter[:1] // Solo primera letra
+	driveLetter = driveLetter[:1] // Only first letter
 	mountPoint := driveLetter + ":"
 
-	// Crear filesystem
+	// Create filesystem
 	fs := vfs.NewS3FS(app.s3Client, bucketName)
 	host := cgofuse.NewFileSystemHost(fs)
 
-	// Habilitar capacidades de escritura
+	// Enable write capabilities
 	host.SetCapCaseInsensitive(false)
 	host.SetCapReaddirPlus(false)
 
-	// Opciones de montaje simplificadas
+	// Simplified mount options
 	mountOpts := []string{
 		"-o", "volname=" + bucketName,
 		"-o", "umask=0",
 	}
 
-	fmt.Printf("Montando bucket '%s' en '%s' con permisos de escritura...\n", bucketName, mountPoint)
+	fmt.Printf("Mounting bucket '%s' on '%s' with write permissions...\n", bucketName, mountPoint)
 
-	// Montar en goroutine
+	// Mount in goroutine
 	go func() {
 		if !host.Mount(mountPoint, mountOpts) {
-			dlgs.Error("Error", fmt.Sprintf("No se pudo montar el bucket '%s' en '%s'", bucketName, mountPoint))
+			dlgs.Error("Error", fmt.Sprintf("Could not mount bucket '%s' on '%s'", bucketName, mountPoint))
 			return
 		}
-		fmt.Printf("Montaje completado para %s\n", bucketName)
+		fmt.Printf("Mount completed for %s\n", bucketName)
 	}()
 
-	// Guardar referencia
+	// Save reference
 	app.mu.Lock()
 	app.mountedBuckets[bucketName] = &MountedBucket{
 		BucketName:  bucketName,
@@ -384,22 +389,31 @@ func toggleBucketMount(bucketName string, menuItem *systray.MenuItem) {
 	app.mu.Unlock()
 
 	menuItem.SetTitle("✅ " + bucketName + " (" + driveLetter + ":)")
-	dlgs.Info("Montado", fmt.Sprintf("Bucket '%s' montado en %s:\n\nAccede desde el Explorador de Windows", bucketName, driveLetter+":"))
+	dlgs.Info("Mounted", fmt.Sprintf("Bucket '%s' mounted on %s:\n\nAccess from Windows Explorer", bucketName, driveLetter+":"))
 }
 
 func showHelp() {
-	dlgs.Info("Ayuda - MaxIOFS Agent",
-		"Cómo usar:\n\n"+
-			"1. Configurar Conexión → Ingresar credenciales\n"+
-			"2. Buckets → Click en un bucket\n"+
-			"3. Elegir letra de unidad (ej: Z)\n"+
-			"4. ¡Listo! Accede desde el Explorador\n\n"+
-			"Los archivos se cargan bajo demanda.\n"+
-			"No descarga todo el bucket.")
+	dlgs.Info("Help - MaxIOFS Agent",
+		"How to use:\n\n"+
+			"1. Configure Connection → Enter credentials\n"+
+			"2. Buckets → Click on a bucket\n"+
+			"3. Choose a drive letter (e.g., Z)\n"+
+			"4. Done! Access from Windows Explorer\n\n"+
+			"Files are loaded on demand.\n"+
+			"Does not download the entire bucket.")
+}
+
+func showAbout() {
+	dlgs.Info("About - MaxIOFS Agent",
+		"MaxIOFS Agent\n"+
+			"Version: 0.1.0-alpha\n\n"+
+			"S3-compatible bucket mounting tool for Windows.\n"+
+			"Mount your S3 buckets as local drives.\n\n"+
+			"GitHub: https://github.com/MaxIOFS/MaxIOFS-Agent")
 }
 
 func confirmQuit() {
-	ok, _ := dlgs.Question("Salir", "¿Está seguro que desea salir de MaxIOFS Agent?", false)
+	ok, _ := dlgs.Question("Quit", "Are you sure you want to quit MaxIOFS Agent?", false)
 	if ok {
 		disconnect()
 		systray.Quit()
