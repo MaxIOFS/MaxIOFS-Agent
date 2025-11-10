@@ -173,6 +173,9 @@ func showSettings() {
 		sslCheck := widget.NewCheck("Use SSL/TLS (Secure Connection)", nil)
 		sslCheck.SetChecked(app.config.UseSSL)
 
+		insecureCheck := widget.NewCheck("Skip SSL Certificate Verification (Insecure)", nil)
+		insecureCheck.SetChecked(app.config.InsecureSkipVerify)
+
 		// Create form
 		form := container.NewVBox(
 			widget.NewLabel("Endpoint:"),
@@ -183,6 +186,7 @@ func showSettings() {
 			secretKeyEntry,
 			widget.NewLabel(""),
 			sslCheck,
+			insecureCheck,
 		)
 
 		// Create buttons
@@ -191,6 +195,7 @@ func showSettings() {
 			accessKey := accessKeyEntry.Text
 			secretKey := secretKeyEntry.Text
 			useSSL := sslCheck.Checked
+			insecureSkipVerify := insecureCheck.Checked
 
 			if endpoint == "" || accessKey == "" || secretKey == "" {
 				dialog.ShowError(fmt.Errorf("All fields are required"), window)
@@ -201,6 +206,7 @@ func showSettings() {
 			app.config.AccessKeyID = accessKey
 			app.config.SecretAccessKey = secretKey
 			app.config.UseSSL = useSSL
+			app.config.InsecureSkipVerify = insecureSkipVerify
 			app.config.Save()
 
 			window.Close()
@@ -237,6 +243,7 @@ func tryConnect() {
 			app.config.AccessKeyID,
 			app.config.SecretAccessKey,
 			app.config.UseSSL,
+			app.config.InsecureSkipVerify,
 		)
 		if err != nil {
 			app.statusItem.SetTitle("⚫ Connection error")

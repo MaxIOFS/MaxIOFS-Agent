@@ -3,8 +3,10 @@ package storage
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -36,7 +38,7 @@ type ObjectInfo struct {
 }
 
 // NewS3Client creates a new client to connect to MaxIOFS
-func NewS3Client(endpoint, accessKeyID, secretAccessKey string, useSSL bool) (*S3Client, error) {
+func NewS3Client(endpoint, accessKeyID, secretAccessKey string, useSSL, insecureSkipVerify bool) (*S3Client, error) {
 	// Configure credentials
 	creds := credentials.NewStaticCredentialsProvider(accessKeyID, secretAccessKey, "")
 
@@ -53,11 +55,22 @@ func NewS3Client(endpoint, accessKeyID, secretAccessKey string, useSSL bool) (*S
 		}, nil
 	})
 
+	// Create HTTP client with custom TLS config if needed
+	httpClient := &http.Client{}
+	if useSSL && insecureSkipVerify {
+		httpClient.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+	}
+
 	// Create configuration
 	cfg := aws.Config{
 		Region:                      "us-east-1",
 		Credentials:                 creds,
 		EndpointResolverWithOptions: customResolver,
+		HTTPClient:                  httpClient,
 	}
 
 	// Create S3 client

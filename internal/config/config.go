@@ -8,12 +8,13 @@ import (
 
 // Config stores the agent configuration
 type Config struct {
-	Endpoint        string `json:"endpoint"`
-	AccessKeyID     string `json:"access_key_id"`
-	SecretAccessKey string `json:"secret_access_key"`
-	UseSSL          bool   `json:"use_ssl"`
-	CachePath       string `json:"cache_path"`
-	MountPath       string `json:"mount_path"`
+	Endpoint           string `json:"endpoint"`
+	AccessKeyID        string `json:"access_key_id"`
+	SecretAccessKey    string `json:"secret_access_key"`
+	UseSSL             bool   `json:"use_ssl"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+	CachePath          string `json:"cache_path"`
+	MountPath          string `json:"mount_path"`
 }
 
 // GetConfigPath returns the configuration file path
